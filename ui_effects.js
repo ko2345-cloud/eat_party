@@ -19,7 +19,7 @@ const FRUIT_SPLATTER_MAP = {
     tomato: 'tomato',
     eggplant: 'eggplant',
     carrot: 'carrot',
-    chili: 'chili',
+    chili: 'watermelon', // Share watermelon splatter per user request
     strawberry: 'strawberry',
     cherry: 'cherry',
     grapesGreen: 'pear',

@@ -303,9 +303,16 @@ function triggerGameOver() {
     const gameOverScreen = document.getElementById('game-over-screen');
     const finalScoreEl = document.getElementById('final-score');
 
+    // Hide HUD elements
+    const gameTimer = document.getElementById('game-timer');
+    const hudTop = document.querySelector('.hud-top');
+    if (gameTimer) gameTimer.style.opacity = '0';
+    if (hudTop) hudTop.style.opacity = '0';
+
     if (gameOverScreen) {
         if (finalScoreEl) finalScoreEl.innerText = `SCORE: ${gameState.score}`;
         gameOverScreen.classList.remove('hidden');
+        gameOverScreen.style.display = 'flex'; // Ensure flex display (or block)
 
         // Ensure Retry Button is clickable
         // Re-bind to be safe (idempotent)
@@ -321,30 +328,63 @@ function triggerGameOver() {
 }
 
 function restartGame() {
-    console.log("Restarting Game...");
+    console.log("[Game] Restart Sequence Initiated");
 
-    // 1. Stop Audio
-    audioManager.stopLoop('fire');
+    try {
+        // 1. Critical State Reset (Do this FIRST)
+        gameState.isGameOver = false;
+        gameState.isPlaying = false;
+        gameState.gameTimer = GAME_DURATION;
+        gameState.score = 0;
+        gameState.fireBreathing = false;
 
-    // 2. Clear Timers (Crucial)
-    if (gameState.seedEffectTimer) clearTimeout(gameState.seedEffectTimer);
+        // 2. Clear Arrays & Timers
+        if (gameState.seedEffectTimer) clearTimeout(gameState.seedEffectTimer);
+        if (gameState.spawnTimer) clearInterval(gameState.spawnTimer); // Legacy safety
+        gameState.apples = [];
+        gameState.fireParticles = [];
+        gameState.faceSeeds = [];
 
-    // 3. Reset Game State
-    gameState.isGameOver = false;
-    gameState.fireBreathing = false;
-    gameState.apples = []; // Clear local array
+        // 4. Force UI Reset
+        const gameOverScreen = document.getElementById('game-over-screen');
+        if (gameOverScreen) {
+            gameOverScreen.classList.add('hidden');
+            gameOverScreen.style.display = 'none'; // Double assurance
+        }
 
-    // 4. Force UI Reset
-    const gameOverScreen = document.getElementById('game-over-screen');
-    if (gameOverScreen) gameOverScreen.classList.add('hidden');
+        // Show HUD elements again
+        const gameTimer = document.getElementById('game-timer');
+        const hudTop = document.querySelector('.hud-top');
+        if (gameTimer) gameTimer.style.opacity = '1';
+        if (hudTop) hudTop.style.opacity = '1';
 
-    const dirtyOverlay = document.getElementById('dirty-overlay');
-    if (dirtyOverlay) dirtyOverlay.style.opacity = '0';
+        const dirtyOverlay = document.getElementById('dirty-overlay');
+        if (dirtyOverlay) dirtyOverlay.style.opacity = '0';
 
-    scoreText.innerText = `得分: 0`;
+        if (scoreText) scoreText.innerText = `得分: 0`;
 
-    // 5. Re-init Game
-    initGame();
+        // 4. Reset Audio (Safe Mode)
+        if (window.audioManager) {
+            try {
+                if (audioManager.loops && audioManager.loops.fire) {
+                    audioManager.stopLoop('fire');
+                }
+            } catch (e) {
+                console.warn("[Audio] Error stopping loops during restart:", e);
+            }
+        }
+
+        // 5. Re-initialize Game Logic (Countdown -> Start)
+        console.log("[Game] Calling initGame()...");
+        initGame();
+
+    } catch (err) {
+        console.error("[Game] Critical Error in restartGame:", err);
+        // Attempt recovery
+        gameState.isGameOver = false;
+        gameState.isPlaying = true;
+        if (typeof initGame === 'function') initGame();
+    }
 }
 
 // Remove the DOMContentLoaded listener for retry button to avoid double binding with triggerGameOver's onclick
@@ -1608,7 +1648,7 @@ function initGame() {
     console.log(`[🎯 FruitSpawner] 使用尺寸: ${canvasWidth} x ${canvasHeight}`);
     gameState.spawner = new FruitSpawner(canvasWidth, canvasHeight);
 
-    gameState.spawner = new FruitSpawner(canvasWidth, canvasHeight);
+    // gameState.spawner = new FruitSpawner(canvasWidth, canvasHeight); // Removed duplicate
 
     // Don't start immediately. Wait for Countdown.
     gameState.isPlaying = false;
@@ -2240,9 +2280,9 @@ function onFaceResults(results) {
             const cheekR = getScreenCoords(landmarks[454].x, landmarks[454].y);
             const faceWidth = Math.abs(cheekR.x - cheekL.x);
 
-            // Image Size: User requested 25% of original image size
-            const imgW = FX_ASSETS.cry.naturalWidth * 0.25;
-            const imgH = FX_ASSETS.cry.naturalHeight * 0.25;
+            // Image Size: User requested 50% of original image size
+            const imgW = FX_ASSETS.cry.naturalWidth * 0.5;
+            const imgH = FX_ASSETS.cry.naturalHeight * 0.5;
 
             // Draw Left
             canvasCtx.save();
@@ -2635,7 +2675,8 @@ function handleGameInteractions(wasOpen, isOpen, position) {
                 fruit.shouldRemove = true; // 辣椒被吃掉消失
 
                 gameState.currentFruit = fruit;
-                gameState.mouthDirtyness = 1.0;
+                // gameState.mouthDirtyness = 1.0; // Disabled per user request (No red circle)
+                gameState.mouthDirtyness = 0; // Ensure clean mouth for fire
 
                 console.log('[🌶️🔥 CHILI!] 噴火模式啟動！持續8秒');
                 updateUI('🔥 噴火模式！ (8s)');
@@ -2661,8 +2702,8 @@ function handleGameInteractions(wasOpen, isOpen, position) {
             // === 檸檬效果 (Lemon Cry) ===
             // 吃到檸檬 -> 哭哭特效 (不論是 lemon, lemon_half, lemon_slice)
             if (fruit.type.includes('lemon')) {
-                gameState.cryTimer = 3000; // Reset to 3 seconds (non-cumulative)
-                console.log('[🍋 Lemon] Cry Effect Triggered! 3s');
+                gameState.cryTimer = 2000; // Reset to 2 seconds (non-cumulative)
+                console.log('[🍋 Lemon] Cry Effect Triggered! 2s');
                 // You might also want to prevent fire breathing if lemon overrides it, or mix them.
                 // User didn't say. Let's assume independent.
             }
@@ -2809,7 +2850,7 @@ function updateProjectiles(landmarks) {
                     y: mouthY,
                     vx: vx,
                     vy: vy,
-                    scale: (0.8 + Math.random() * 0.4) * 0.25, // 50% smaller
+                    scale: 1.0, // 100% size per user request
                     rotation: Math.random() * Math.PI * 2,
                     shouldRemove: false
                 };
@@ -2943,7 +2984,7 @@ function triggerWatermelonSeeds() {
             rx: (Math.random() - 0.5) * 0.8, // Relative X to Nose
             ry: (Math.random() - 0.5) * 0.5 - 0.1, // Relative Y to Nose (upper face)
             angle: Math.random() * Math.PI * 2,
-            scale: (0.5 + Math.random() * 0.5) * 0.5, // 50% smaller
+            scale: 1.0, // 100% size per user request
             lifetime: 8000 // Match duration
         });
     }
